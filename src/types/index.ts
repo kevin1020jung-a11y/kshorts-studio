@@ -100,6 +100,10 @@ export interface ShortsProject {
 }
 
 export interface AppSettings {
+  /** Anthropic Claude API 키 (대본·제목·번역 등 텍스트 생성 1순위) */
+  anthropicApiKey?: string;
+  /** 사용할 Claude 모델 (기본: claude-opus-5-5) */
+  claudeModel?: string;
   openaiApiKey?: string;
   geminiApiKey?: string;
   falApiKey?: string;

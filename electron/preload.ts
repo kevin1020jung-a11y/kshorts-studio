@@ -198,6 +198,8 @@ export const electronAPI = {
   // Media Connections & Hardware Acceleration & Audio Intelligence
   getRecommendedBgm: (topic: string, channelNiche?: string): Promise<{ filename: string; trackId: string; name: string; reason: string }> =>
     ipcRenderer.invoke('get-recommended-bgm', topic, channelNiche),
+  testClaudeConnection: (params?: { apiKey?: string; model?: string }): Promise<{ success: boolean; message?: string; error?: string }> =>
+    ipcRenderer.invoke('test-claude-connection', params || {}),
   testPexelsConnection: (params?: { apiKey?: string }): Promise<{ success: boolean; message?: string; error?: string }> =>
     ipcRenderer.invoke('test-pexels-connection', params || {}),
   testPixabayConnection: (params?: { apiKey?: string }): Promise<{ success: boolean; message?: string; error?: string }> =>

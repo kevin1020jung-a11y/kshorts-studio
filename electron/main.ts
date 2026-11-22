@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, safeStorage } from 'electron';
+import Anthropic from '@anthropic-ai/sdk';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -696,6 +697,104 @@ const GEMINI_WATERFALL_MODELS = [
   'gemini-3.8-flash',
   'gemini-flash-latest',
 ] as const;
+
+// ----------------------------------------------------
+// Anthropic Claude (1순위 텍스트 엔진)
+// ----------------------------------------------------
+// 키: 설정 화면의 anthropicApiKey(OS 보안 저장소에 암호화 저장) 또는 환경 변수 ANTHROPIC_API_KEY
+// 모델: 설정 화면의 claudeModel, 없으면 CLAUDE_DEFAULT_MODEL
+const CLAUDE_DEFAULT_MODEL = 'claude-opus-5-5';
+const CLAUDE_MODELS = ['claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'] as const;
+
+function getClaudeConfig(): { apiKey: string; model: string } | null {
+  const settings = getStoredSettings();
+  const apiKey = String(settings.anthropicApiKey || process.env.ANTHROPIC_API_KEY || '').trim();
+  if (!apiKey) return null;
+  const model = (CLAUDE_MODELS as readonly string[]).includes(String(settings.claudeModel || ''))
+    ? String(settings.claudeModel)
+    : CLAUDE_DEFAULT_MODEL;
+  return { apiKey, model };
+}
+
+/**
+ * Claude Messages API로 텍스트를 생성한다. 키가 없으면 null, 실패하면 예외를 던진다.
+ * 정책상 거절(refusal)되면 서버 측 fallback이 같은 요청을 대체 모델로 다시 처리한다.
+ */
+async function callClaudeText(opts: {
+  prompt: string;
+  system?: string;
+  maxTokens?: number;
+  effort?: 'low' | 'medium' | 'high';
+  timeoutMs?: number;
+  apiKeyOverride?: string;
+}): Promise<string | null> {
+  const cfg = getClaudeConfig();
+  const apiKey = (opts.apiKeyOverride || cfg?.apiKey || '').trim();
+  if (!apiKey) return null;
+  const model = cfg?.model || CLAUDE_DEFAULT_MODEL;
+  const client = new Anthropic({ apiKey, timeout: opts.timeoutMs ?? 120000, maxRetries: 2 });
+  const supportsFallback = model !== 'claude-haiku-5-5';
+  const response = await client.beta.messages.create({
+    model,
+    max_tokens: opts.maxTokens ?? 16000,
+    ...(opts.system ? { system: opts.system } : {}),
+    output_config: { effort: opts.effort ?? 'medium' },
+    ...(supportsFallback ? { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' as const } : {}),
+    messages: [{ role: 'user', content: opts.prompt }],
+  });
+  if (response.stop_reason === 'refusal') {
+    throw new Error(`[Claude ${model}] 요청이 거절되었습니다 (${response.stop_details?.category ?? 'unknown'})`);
+  }
+  const text = response.content
+    .map((b) => (b.type === 'text' ? b.text : ''))
+    .join('')
+    .trim();
+  console.log(`[Claude] ${response.model} → ${text.length}자 (stop: ${response.stop_reason})`);
+  return text || null;
+}
+
+/** Claude 응답에서 JSON을 꺼낸다. ```json 코드 블록이나 앞뒤 설명문이 붙어 있어도 처리한다. */
+function parseClaudeJson(text: string | null): any {
+  if (!text) return null;
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
+  const body = (fenced ? fenced[1] : text).trim();
+  try {
+    return JSON.parse(body);
+  } catch {}
+  const start = body.search(/[[{]/);
+  const end = Math.max(body.lastIndexOf('}'), body.lastIndexOf(']'));
+  if (start >= 0 && end > start) {
+    try {
+      return JSON.parse(body.slice(start, end + 1));
+    } catch {}
+  }
+  return null;
+}
+
+async function callClaudeApiForScript(
+  prompt: string,
+  title?: string,
+  durationSeconds: number = 55,
+  loopMode: boolean = false
+): Promise<string> {
+  const effectiveTitle = (title || prompt).trim();
+  const userPrompt =
+    `[유튜브 영상 확정 제목]: ${effectiveTitle}\n` +
+    `[쇼츠 기획 주제]: ${prompt}\n` +
+    `[목표 분량]: 약 ${durationSeconds}초 분량 (한글 약 450~550자의 완결형 쇼츠 대본)\n\n` +
+    `[대본 집필 가이드]:\n` +
+    `1. 도입부 (0~5초): 제목 "${effectiveTitle}"에 담긴 핵심 질문이나 호기심을 시청자에게 직접 던져 3초 만에 스크롤을 멈추게 만드세요.\n` +
+    `2. 본론: 주제에 가장 어울리는 서사(반전, 팩트, 원인, 실전 노하우 등)로 몰입감 있게 서술하세요.\n` +
+    `3. 결론: 핵심을 각인시키고, 댓글을 달고 싶어지는 질문으로 온전한 문장으로 마무리하세요.\n` +
+    `대본 본문만 출력하세요. 제목, 머리말, 설명, 괄호 지시문, 해시태그, 마크다운은 넣지 마세요.`;
+  const raw = await callClaudeText({
+    system: KOREAN_SHORTS_SYSTEM_PROMPT + (loopMode ? LOOP_MODE_SYSTEM_ADDENDUM : ''),
+    prompt: userPrompt,
+    effort: 'medium',
+  });
+  if (raw && raw.length > 100) return cleanScript(raw);
+  throw new Error('Claude returned empty script');
+}
 
 const KOREAN_SHORTS_SYSTEM_PROMPT =
   '당신은 유튜브 쇼츠, 틱톡, 릴스에서 누적 조회수 1억 회를 달성한 대한민국 최정상 쇼츠 전문 시나리오 작가입니다.\n' +
@@ -2197,6 +2296,24 @@ async function generateAiVisualPrompts(
     `[Scenes]:\n${sceneListStr}\n\n` +
     `Output format: JSON array of strings, e.g. ["hero shot of ...", "close-up of ..."]`;
 
+  if (getClaudeConfig()) {
+    try {
+      const raw = await callClaudeText({
+        system: systemInstruction,
+        prompt: `${userPrompt}\nReturn only the JSON array, with no other text.`,
+        effort: 'low',
+        maxTokens: 4000,
+        timeoutMs: 60000,
+      });
+      const parsed = parseClaudeJson(raw);
+      if (Array.isArray(parsed) && parsed.length === sceneTexts.length) {
+        return parsed.map((p) => String(p).trim());
+      }
+    } catch (claudeErr) {
+      console.warn('[Claude Visual Prompts Warning]:', claudeErr);
+    }
+  }
+
   if (geminiApiKey) {
     for (const model of ['gemini-3.5-flash-lite', 'gemini-3.6-flash', 'gemini-flash-latest']) {
       try {
@@ -3279,6 +3396,15 @@ ipcMain.handle('generate-script', async (_, params: GenerateScriptRequest) => {
   const geminiKey = params.geminiApiKey || settings.geminiApiKey || process.env.GEMINI_API_KEY;
   const openaiKey = params.apiKey || settings.openaiApiKey || process.env.OPENAI_API_KEY;
 
+  if (getClaudeConfig()) {
+    try {
+      const text = await callClaudeApiForScript(prompt, undefined, durationSeconds, loopMode);
+      if (text) return finalizeLoopScript(text, loopMode);
+    } catch (e) {
+      console.warn('[Claude Script Engine Error, trying Gemini/OpenAI/fallback]:', e);
+    }
+  }
+
   if (geminiKey) {
     try {
       const text = await callGeminiApiForScript(geminiKey, prompt, undefined, durationSeconds, loopMode);
@@ -3571,7 +3697,14 @@ async function executeRenderPipeline(
       sendProgress('generating_script', 20, 'AI 대본 자동 생성 중...');
       const geminiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
       const openaiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY;
-      if (geminiKey) {
+      if (getClaudeConfig()) {
+        try {
+          finalScript = await callClaudeApiForScript(prompt, title, durationSeconds, Boolean(params.loopMode));
+        } catch (e) {
+          console.warn('[Claude Script Engine Error, trying Gemini/OpenAI]:', e);
+        }
+      }
+      if (!finalScript && geminiKey) {
         try {
           finalScript = await callGeminiApiForScript(geminiKey, prompt, title, durationSeconds, Boolean(params.loopMode));
         } catch {}
@@ -3716,7 +3849,7 @@ async function executeRenderPipeline(
     let aiVisualPrompts: string[] = [];
     const geminiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
     const openaiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY;
-    if (geminiKey || openaiKey) {
+    if (getClaudeConfig() || geminiKey || openaiKey) {
       try {
         aiVisualPrompts = await generateAiVisualPrompts(title || prompt, sceneDescriptions, geminiKey, openaiKey);
       } catch (promptErr) {
@@ -4158,15 +4291,17 @@ async function generateYouTubeHookingMetadata(
   let defaultDesc = `🔥 ${cleanTopic}\n\n${script}\n\n📌 구독과 좋아요는 더 유익하고 재미있는 쇼츠 제작에 큰 힘이 됩니다!\n#Shorts #쇼츠 #지식쇼츠 #꿀팁 #알고리즘`;
   let defaultTags = ['Shorts', '쇼츠', '지식', '꿀팁', '동기부여', '자기계발', '인기급상승'];
 
-  if (!geminiApiKey) {
-    return { title: defaultTitle, description: defaultDesc, tags: defaultTags };
-  }
+  const buildMeta = (parsed: any) => {
+    let outTitle = String(parsed?.title || defaultTitle).trim();
+    if (!outTitle.includes('#Shorts') && !outTitle.includes('#shorts')) {
+      outTitle = `${outTitle} #Shorts`;
+    }
+    const outDesc = String(parsed?.description || defaultDesc).trim();
+    const outTags = Array.isArray(parsed?.tags) && parsed.tags.length >= 5 ? parsed.tags : defaultTags;
+    return { title: outTitle, description: outDesc, tags: Array.from(new Set([...outTags, 'Shorts', '쇼츠'])) };
+  };
 
-  try {
-    for (const model of GEMINI_WATERFALL_MODELS) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
-        const prompt = `당신은 대한민국 1위 유튜브 쇼츠 알고리즘 마케팅 전문가입니다.
+  const metaPrompt = `당신은 대한민국 1위 유튜브 쇼츠 알고리즘 마케팅 전문가입니다.
 아래 [영상 주제]와 [대본]을 바탕으로 유튜브 쇼츠에 자동 업로드할 '미친 클릭률의 3초 후킹 제목', '알고리즘 최적화 영상 설명문', '핵심 태그 최소 7개 이상'을 작성하세요.
 
 [영상 주제]: ${topic}
@@ -4179,6 +4314,24 @@ async function generateYouTubeHookingMetadata(
   "tags": ["태그1", "태그2", "태그3", "태그4", "태그5", "태그6", "태그7"]
 }`;
 
+  if (getClaudeConfig()) {
+    try {
+      const parsed = parseClaudeJson(await callClaudeText({ prompt: metaPrompt, effort: 'low', maxTokens: 4000 }));
+      if (parsed && (parsed.title || parsed.description)) return buildMeta(parsed);
+    } catch (claudeErr) {
+      console.warn('[YouTube Metadata Gen] Claude failed, trying Gemini...', claudeErr);
+    }
+  }
+
+  if (!geminiApiKey) {
+    return { title: defaultTitle, description: defaultDesc, tags: defaultTags };
+  }
+
+  try {
+    for (const model of GEMINI_WATERFALL_MODELS) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+        const prompt = metaPrompt;
         const res = await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -4192,18 +4345,7 @@ async function generateYouTubeHookingMetadata(
           const data: any = await res.json();
           const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
           if (jsonText) {
-            const parsed = JSON.parse(jsonText);
-            let outTitle = (parsed.title || defaultTitle).trim();
-            if (!outTitle.includes('#Shorts') && !outTitle.includes('#shorts')) {
-              outTitle = `${outTitle} #Shorts`;
-            }
-            const outDesc = (parsed.description || defaultDesc).trim();
-            const outTags = Array.isArray(parsed.tags) && parsed.tags.length >= 5 ? parsed.tags : defaultTags;
-            return {
-              title: outTitle,
-              description: outDesc,
-              tags: Array.from(new Set([...outTags, 'Shorts', '쇼츠'])),
-            };
+            return buildMeta(JSON.parse(jsonText));
           }
         }
       } catch (innerErr) {
@@ -4218,18 +4360,27 @@ async function generateYouTubeHookingMetadata(
 }
 
 async function generateSmartCommentText(title: string, description: string, apiKey?: string): Promise<string> {
+  const prompt =
+    `당신은 100만 구독자를 보유한 쇼츠 채널의 기획자입니다.\n` +
+    `아래 영상에 고정 댓글(첫 댓글)로 달아서 시청자들의 댓글 참여와 체류 시간을 극대화할 짧고 매력적인 첫 댓글 1개를 작성해주세요.\n` +
+    `- 이모지를 적절히 사용하세요 (📌, 💬, 👇, ✨ 등).\n` +
+    `- 시청자에게 흥미로운 질문을 던지거나 공감을 유발하는 1~2문장으로 작성하세요.\n` +
+    `- 따옴표나 불필요한 부가 설명 없이 순수 댓글 텍스트만 출력하세요.\n\n` +
+    `[영상 제목]: ${title}\n` +
+    `[영상 내용]: ${description.slice(0, 300)}`;
+
+  if (getClaudeConfig()) {
+    try {
+      const raw = await callClaudeText({ prompt, effort: 'low', maxTokens: 2000 });
+      if (raw) return raw.replace(/^["'`]|["'`]$/g, '').trim();
+    } catch (err) {
+      console.warn('[Auto-Comment Gen] Claude failed, trying Gemini:', err);
+    }
+  }
+
   if (apiKey) {
     for (const model of GEMINI_WATERFALL_MODELS) {
       try {
-        const prompt =
-          `당신은 100만 구독자를 보유한 쇼츠 채널의 기획자입니다.\n` +
-          `아래 영상에 고정 댓글(첫 댓글)로 달아서 시청자들의 댓글 참여와 체류 시간을 극대화할 짧고 매력적인 첫 댓글 1개를 작성해주세요.\n` +
-          `- 이모지를 적절히 사용하세요 (📌, 💬, 👇, ✨ 등).\n` +
-          `- 시청자에게 흥미로운 질문을 던지거나 공감을 유발하는 1~2문장으로 작성하세요.\n` +
-          `- 따옴표나 불필요한 부가 설명 없이 순수 댓글 텍스트만 출력하세요.\n\n` +
-          `[영상 제목]: ${title}\n` +
-          `[영상 내용]: ${description.slice(0, 300)}`;
-
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         const res = await fetch(url, {
           method: 'POST',
@@ -5672,6 +5823,31 @@ ipcMain.handle('test-elevenlabs-connection', async (_, { apiKey }) => {
   }
 });
 
+ipcMain.handle('test-claude-connection', async (_, params?: { apiKey?: string; model?: string }) => {
+  const apiKey = String(params?.apiKey || getClaudeConfig()?.apiKey || '').trim();
+  if (!apiKey) return { success: false, error: 'Claude API 키를 입력해주세요.' };
+  const model = (CLAUDE_MODELS as readonly string[]).includes(String(params?.model || ''))
+    ? String(params?.model)
+    : getClaudeConfig()?.model || CLAUDE_DEFAULT_MODEL;
+  try {
+    const client = new Anthropic({ apiKey, timeout: 60000, maxRetries: 1 });
+    const res = await client.messages.create({
+      model,
+      max_tokens: 1000,
+      output_config: { effort: 'low' },
+      messages: [{ role: 'user', content: '연결 확인입니다. "연결 성공"이라고만 답해 주세요.' }],
+    });
+    const text = res.content.map((b) => (b.type === 'text' ? b.text : '')).join('').trim();
+    return { success: true, message: `연결 성공 (${res.model}): ${text.slice(0, 40)}` };
+  } catch (err: any) {
+    if (err instanceof Anthropic.AuthenticationError) return { success: false, error: 'API 키가 올바르지 않습니다.' };
+    if (err instanceof Anthropic.PermissionDeniedError) return { success: false, error: '이 키로는 해당 모델을 사용할 권한이 없습니다.' };
+    if (err instanceof Anthropic.RateLimitError) return { success: false, error: '요청 한도를 초과했습니다. 잠시 후 다시 시도해 주세요.' };
+    if (err instanceof Anthropic.APIError) return { success: false, error: `API 오류 ${err.status ?? ''}: ${err.message}` };
+    return { success: false, error: err?.message || 'Claude 연결 실패' };
+  }
+});
+
 ipcMain.handle('test-pexels-connection', async (_, params?: { apiKey?: string }) => {
   const settings = getStoredSettings();
   const key = (params?.apiKey || settings.pexelsApiKey || process.env.PEXELS_API_KEY || '').trim();
@@ -5879,7 +6055,7 @@ ipcMain.handle('translate-script-multilingual', async (_, { script, title }: { s
   const geminiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
 
   let parsed: any = null;
-  if (geminiKey && cleanScript) {
+  if ((getClaudeConfig() || geminiKey) && cleanScript) {
     const prompt =
       `You are a viral YouTube Shorts / TikTok localization expert.\n` +
       `Translate and localize the following Korean Shorts into 3 languages: English (en), Japanese (ja), Spanish (es).\n` +
@@ -5893,7 +6069,16 @@ ipcMain.handle('translate-script-multilingual', async (_, { script, title }: { s
       `}\n` +
       `Every title, script and tag must be written entirely in the target language: never leave any Korean (Hangul) characters; translate or romanize proper nouns.\n` +
       `Ensure scripts sound natural, energetic, and concise for 50-second Shorts voiceover without parenthetical notes.`;
-    for (const model of GEMINI_WATERFALL_MODELS) {
+    if (getClaudeConfig()) {
+      try {
+        parsed = parseClaudeJson(
+          await callClaudeText({ prompt: `${prompt}\nReturn only the JSON object, with no other text.`, effort: 'low', maxTokens: 8000 })
+        );
+      } catch (cErr) {
+        console.warn('[Claude Multilingual error, trying Gemini]:', cErr);
+      }
+    }
+    for (const model of parsed ? [] : GEMINI_WATERFALL_MODELS) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`;
         const res = await fetch(url, {
@@ -6273,20 +6458,32 @@ async function generateAutonomousTopic(
   const nicheClean = channelNiche || '생활 속 꿀팁 및 유용한 상식';
   const pastText = pastTopics.slice(0, 20).map((t, idx) => `${idx + 1}. ${t}`).join('\n');
 
+  const prompt =
+    `당신은 유튜브 쇼츠 알고리즘을 지배하는 1타 유튜브 기획자입니다.\n\n` +
+    `[채널 콘셉트 및 분야]: ${nicheClean}\n` +
+    (customInstruction ? `[추가 지침]: ${customInstruction}\n` : '') +
+    (pastText ? `[이미 제작된 이전 쇼츠 주제들(절대 중복 금지)]:\n${pastText}\n\n` : '') +
+    `[미션]:\n` +
+    `1. 위 채널 콘셉트에 부합하면서, 시청자가 스크롤을 멈추고 1초 만에 클릭하게 만들 파급력 높은 쇼츠 주제 1개를 기획하세요.\n` +
+    `2. 과거 다룬 주제와 명확히 차별화되는 참신하고 구체적인 실천형/흥미형 소재여야 합니다.\n` +
+    `3. 응답은 반드시 순수 JSON 객체 포맷으로만 출력하세요 (따옴표나 마크다운 코드블록 없이):\n` +
+    `{"topic": "대본 생성에 쓸 구체적인 주제 (예: 냄비 바닥 탄 자국 3분 만에 베이킹소다로 없애는 법)", "title": "유튜브 업로드용 후킹 제목 (예: 탄 냄비 버리지 마세요! 3분 만에 새것 만드는 마법)"}`;
+
+  if (getClaudeConfig()) {
+    try {
+      const parsed = parseClaudeJson(await callClaudeText({ prompt, effort: 'low', maxTokens: 2000 }));
+      if (parsed?.topic && parsed?.title) {
+        console.log('[AutoPilot Topic Generator] Generated topic with Claude:', parsed);
+        return { topic: String(parsed.topic).trim(), title: String(parsed.title).trim() };
+      }
+    } catch (err) {
+      console.warn('[AutoPilot Topic Generator] Claude failed, trying Gemini...', err);
+    }
+  }
+
   if (apiKey) {
     for (const model of GEMINI_WATERFALL_MODELS) {
       try {
-        const prompt =
-          `당신은 유튜브 쇼츠 알고리즘을 지배하는 1타 유튜브 기획자입니다.\n\n` +
-          `[채널 콘셉트 및 분야]: ${nicheClean}\n` +
-          (customInstruction ? `[추가 지침]: ${customInstruction}\n` : '') +
-          (pastText ? `[이미 제작된 이전 쇼츠 주제들(절대 중복 금지)]:\n${pastText}\n\n` : '') +
-          `[미션]:\n` +
-          `1. 위 채널 콘셉트에 부합하면서, 시청자가 스크롤을 멈추고 1초 만에 클릭하게 만들 파급력 높은 쇼츠 주제 1개를 기획하세요.\n` +
-          `2. 과거 다룬 주제와 명확히 차별화되는 참신하고 구체적인 실천형/흥미형 소재여야 합니다.\n` +
-          `3. 응답은 반드시 순수 JSON 객체 포맷으로만 출력하세요 (따옴표나 마크다운 코드블록 없이):\n` +
-          `{"topic": "대본 생성에 쓸 구체적인 주제 (예: 냄비 바닥 탄 자국 3분 만에 베이킹소다로 없애는 법)", "title": "유튜브 업로드용 후킹 제목 (예: 탄 냄비 버리지 마세요! 3분 만에 새것 만드는 마법)"}`;
-
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
         const res = await fetch(url, {
           method: 'POST',
@@ -6498,22 +6695,33 @@ async function generateFollowUpTopic(
   apiKey?: string,
   customInstruction?: string
 ): Promise<{ topic: string; title: string }> {
+  const pastText = pastTopics.slice(0, 20).map((t, idx) => `${idx + 1}. ${t}`).join('\n');
+  const prompt =
+    `당신은 유튜브 쇼츠 알고리즘을 지배하는 1타 유튜브 기획자입니다.\n\n` +
+    `[채널 콘셉트]: ${channelNiche || '생활 속 꿀팁'}\n` +
+    (customInstruction ? `[추가 지침]: ${customInstruction}\n` : '') +
+    `[조회수가 급상승한 영상]: "${winner.title}" (조회수 ${winner.views.toLocaleString()}회, 좋아요 ${winner.likes.toLocaleString()}, 댓글 ${winner.comments.toLocaleString()})\n` +
+    (pastText ? `[이미 제작된 이전 주제들(그대로 반복 금지)]:\n${pastText}\n\n` : '\n') +
+    `[미션]:\n` +
+    `1. 위 영상이 시청자에게 먹힌 핵심 이유(주제, 후킹 방식)를 유지하면서, 같은 내용을 반복하지 않는 "2탄/후속편" 주제 1개를 기획하세요.\n` +
+    `2. 제목에는 후속편임이 드러나야 합니다. (예: 2탄, 진짜 소름은 지금부터)\n` +
+    `3. 응답은 반드시 순수 JSON 객체로만 출력하세요 (마크다운 코드블록 없이):\n` +
+    `{"topic": "대본 생성에 쓸 구체적인 후속 주제", "title": "유튜브 업로드용 후킹 제목"}`;
+
+  if (getClaudeConfig()) {
+    try {
+      const parsed = parseClaudeJson(await callClaudeText({ prompt, effort: 'low', maxTokens: 2000 }));
+      if (parsed?.topic && parsed?.title) {
+        return { topic: String(parsed.topic).trim(), title: String(parsed.title).trim() };
+      }
+    } catch (err) {
+      console.warn('[FollowUp Topic Generator] Claude failed, trying Gemini...', err);
+    }
+  }
+
   if (apiKey) {
-    const pastText = pastTopics.slice(0, 20).map((t, idx) => `${idx + 1}. ${t}`).join('\n');
     for (const model of GEMINI_WATERFALL_MODELS) {
       try {
-        const prompt =
-          `당신은 유튜브 쇼츠 알고리즘을 지배하는 1타 유튜브 기획자입니다.\n\n` +
-          `[채널 콘셉트]: ${channelNiche || '생활 속 꿀팁'}\n` +
-          (customInstruction ? `[추가 지침]: ${customInstruction}\n` : '') +
-          `[조회수가 급상승한 영상]: "${winner.title}" (조회수 ${winner.views.toLocaleString()}회, 좋아요 ${winner.likes.toLocaleString()}, 댓글 ${winner.comments.toLocaleString()})\n` +
-          (pastText ? `[이미 제작된 이전 주제들(그대로 반복 금지)]:\n${pastText}\n\n` : '\n') +
-          `[미션]:\n` +
-          `1. 위 영상이 시청자에게 먹힌 핵심 이유(주제, 후킹 방식)를 유지하면서, 같은 내용을 반복하지 않는 "2탄/후속편" 주제 1개를 기획하세요.\n` +
-          `2. 제목에는 후속편임이 드러나야 합니다. (예: 2탄, 진짜 소름은 지금부터)\n` +
-          `3. 응답은 반드시 순수 JSON 객체로만 출력하세요 (마크다운 코드블록 없이):\n` +
-          `{"topic": "대본 생성에 쓸 구체적인 후속 주제", "title": "유튜브 업로드용 후킹 제목"}`;
-
         const res = await fetch(
           `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
           {
@@ -6664,12 +6872,21 @@ async function executeAutoPilotJob(forceNow = false): Promise<{ success: boolean
     const projectId = `proj_${Date.now()}`;
     const duration = config.durationSeconds || 55;
 
-    // 대본 자동 생성: Gemini -> OpenAI -> 100% 제목 맞춤형 스마트 생성기 순으로 폴백
+    // 대본 자동 생성: Claude -> Gemini -> OpenAI -> 100% 제목 맞춤형 스마트 생성기 순으로 폴백
     let script = '';
     const geminiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
     const openaiKey = settings.openaiApiKey || process.env.OPENAI_API_KEY;
 
-    if (geminiKey) {
+    if (getClaudeConfig()) {
+      try {
+        console.log(`[AutoPilot] Requesting Claude script for title: "${title}" | topic: "${topic}"`);
+        script = await callClaudeApiForScript(topic, title, duration);
+      } catch (claudeErr) {
+        console.warn('[AutoPilot Claude Script failed, trying Gemini/OpenAI]:', claudeErr);
+      }
+    }
+
+    if (!script && geminiKey) {
       try {
         console.log(`[AutoPilot] Requesting Gemini script for title: "${title}" | topic: "${topic}"`);
         script = await callGeminiApiForScript(geminiKey, topic, title, duration);
@@ -7485,7 +7702,7 @@ ipcMain.handle('generate-pinned-comments', async (_, params: { topic: string; sc
   const settings = getStoredSettings();
   const geminiKey = settings.geminiApiKey || process.env.GEMINI_API_KEY;
 
-  if (geminiKey) {
+  if (getClaudeConfig() || geminiKey) {
     try {
       const prompt = `당신은 대한민국 최고 유튜브 쇼츠 알고리즘 전문가입니다.
 다음 영상 주제와 대본을 분석하여, 시청자 댓글 참여율과 체류 시간을 극대화할 수 있는 [고정 댓글 3종 세트]를 한국어로 작성해주세요.
@@ -7513,7 +7730,17 @@ ipcMain.handle('generate-pinned-comments', async (_, params: { topic: string; sc
   }
 ]`;
 
-      const aiRes = await callGeminiApiForScript(geminiKey, prompt);
+      if (getClaudeConfig()) {
+        try {
+          const parsed = parseClaudeJson(await callClaudeText({ prompt, effort: 'low', maxTokens: 4000 }));
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return { success: true, suggestions: parsed };
+          }
+        } catch (cErr) {
+          console.warn('[Claude Pinned Comment Warning, trying Gemini]:', cErr);
+        }
+      }
+      const aiRes = geminiKey ? await callGeminiApiForScript(geminiKey, prompt) : '';
       if (aiRes) {
         const cleaned = aiRes.replace(/```json/g, '').replace(/```/g, '').trim();
         const parsed = JSON.parse(cleaned);
