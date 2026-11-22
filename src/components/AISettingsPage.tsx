@@ -16,6 +16,10 @@ export const AISettingsPage: React.FC<AISettingsPageProps> = ({
   onSelectOutputDirectory,
   onNavigateToPublish,
 }) => {
+  const [anthropicApiKey, setAnthropicApiKey] = useState(settings.anthropicApiKey || '');
+  const [claudeModel, setClaudeModel] = useState(settings.claudeModel || 'claude-opus-5-5');
+  const [isTestingClaude, setIsTestingClaude] = useState(false);
+  const [claudeTestResult, setClaudeTestResult] = useState<{ success: boolean; message?: string; error?: string } | null>(null);
   const [geminiApiKey, setGeminiApiKey] = useState(settings.geminiApiKey || '');
   const [openaiApiKey, setOpenaiApiKey] = useState(settings.openaiApiKey || '');
   const [falApiKey, setFalApiKey] = useState(settings.falApiKey || '');
@@ -52,6 +56,8 @@ export const AISettingsPage: React.FC<AISettingsPageProps> = ({
   const handleSave = () => {
     onSaveSettings({
       ...settings,
+      anthropicApiKey: anthropicApiKey.trim() || undefined,
+      claudeModel,
       geminiApiKey: geminiApiKey.trim() || undefined,
       openaiApiKey: openaiApiKey.trim() || undefined,
       falApiKey: falApiKey.trim() || undefined,
@@ -82,6 +88,23 @@ export const AISettingsPage: React.FC<AISettingsPageProps> = ({
       setPexelsTestResult({ success: false, error: err?.message || 'Pexels 연결 실패' });
     } finally {
       setIsTestingPexels(false);
+    }
+  };
+
+  const handleTestClaude = async () => {
+    if (!anthropicApiKey.trim()) {
+      setClaudeTestResult({ success: false, error: 'Claude API 키를 입력해주세요.' });
+      return;
+    }
+    setIsTestingClaude(true);
+    setClaudeTestResult(null);
+    try {
+      const res = await window.electronAPI.testClaudeConnection({ apiKey: anthropicApiKey.trim(), model: claudeModel });
+      setClaudeTestResult(res);
+    } catch (err: any) {
+      setClaudeTestResult({ success: false, error: err?.message || 'Claude 연결 실패' });
+    } finally {
+      setIsTestingClaude(false);
     }
   };
 
@@ -176,6 +199,7 @@ export const AISettingsPage: React.FC<AISettingsPageProps> = ({
   };
 
   const registeredKeyCount = [
+    anthropicApiKey,
     geminiApiKey,
     openaiApiKey,
     falApiKey,
@@ -263,12 +287,63 @@ export const AISettingsPage: React.FC<AISettingsPageProps> = ({
 
         {/* API Key Inputs Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          {/* Anthropic Claude API Key */}
+          <div className="md:col-span-2 space-y-1.5 p-4 rounded-xl bg-orange-50/60 border border-orange-200 focus-within:border-orange-500 focus-within:bg-white transition-all">
+            <div className="flex items-center justify-between text-xs">
+              <label className="font-extrabold text-slate-800 flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-orange-600" />
+                <span>Anthropic Claude API 키 (대본·제목·번역 1순위)</span>
+              </label>
+              <a
+                href="https://console.anthropic.com/settings/keys"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] text-orange-600 hover:text-orange-700 font-bold hover:underline flex items-center gap-0.5"
+              >
+                <span>키 발급</span>
+                <ExternalLink className="w-2.5 h-2.5" />
+              </a>
+            </div>
+            <div className="flex flex-col md:flex-row gap-2">
+              <input
+                type="password"
+                value={anthropicApiKey}
+                onChange={(e) => setAnthropicApiKey(e.target.value)}
+                placeholder="sk-ant-... (Claude Console API 키)"
+                className="flex-1 bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 placeholder-slate-400 focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 font-medium"
+              />
+              <select
+                value={claudeModel}
+                onChange={(e) => setClaudeModel(e.target.value)}
+                className="bg-white border border-slate-200 rounded-lg px-3 py-2 text-xs text-slate-900 focus:outline-none focus:border-orange-500 font-bold"
+              >
+                <option value="claude-opus-5-5">Claude Opus 5.5 (최고 품질)</option>
+                <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (균형, 약 절반 비용)</option>
+                <option value="claude-haiku-5-5">Claude Haiku 5.5 (최저 비용)</option>
+              </select>
+              <button
+                type="button"
+                onClick={handleTestClaude}
+                disabled={isTestingClaude}
+                className="px-3 py-2 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:opacity-60 text-white text-xs font-bold whitespace-nowrap"
+              >
+                {isTestingClaude ? '확인 중...' : '연결 테스트'}
+              </button>
+            </div>
+            {claudeTestResult && (
+              <p className={`text-[11px] font-bold ${claudeTestResult.success ? 'text-emerald-600' : 'text-red-500'}`}>
+                {claudeTestResult.success ? claudeTestResult.message : `오류: ${claudeTestResult.error}`}
+              </p>
+            )}
+            <p className="text-[10px] text-slate-500 font-medium">키를 넣으면 대본, 장면 묘사, 유튜브 제목·설명, 첫 댓글, 번역, 자동 주제 기획을 Claude가 먼저 맡고, 실패하면 Gemini ➡️ OpenAI ➡️ 내장 규칙 순으로 넘어갑니다. 키는 Windows 보안 저장소에 암호화되어 저장됩니다. Claude.ai 구독과는 별개로 사용량만큼 과금됩니다.</p>
+          </div>
+
           {/* Gemini API Key */}
           <div className="space-y-1.5 p-4 rounded-xl bg-slate-50 border border-slate-200 focus-within:border-blue-500 focus-within:bg-white transition-all">
             <div className="flex items-center justify-between text-xs">
               <label className="font-extrabold text-slate-800 flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                <span>Google Gemini API 키 (대본 1순위)</span>
+                <span>Google Gemini API 키 (대본 2순위)</span>
               </label>
               <a
                 href="https://aistudio.google.com/app/apikey"

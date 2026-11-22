@@ -21,6 +21,7 @@
     "build:buyer": "node scripts/run-edition.js buyer npm run build"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0",
     "clsx": "^2.1.1",
     "ffmpeg-static": "^5.2.0",
     "ffprobe-static": "^3.1.0",
