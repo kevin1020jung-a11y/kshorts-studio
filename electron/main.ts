@@ -4951,7 +4951,9 @@ function downloadFileWithProgress(
   });
 }
 
-const DEFAULT_UPDATE_REPO = 'lsszz2100/kshorts-releases';
+// 이 포크는 Claude 연동판이다. 원본 배포 저장소의 설치 파일로 자동 업데이트되면 Claude 연동이 사라지므로,
+// 기본 업데이트 저장소를 비워 둔다. 필요하면 설정의 githubRepo에 직접 지정한다.
+const DEFAULT_UPDATE_REPO = '';
 let lastApiUpdateCheck = 0;
 
 /** 마지막 업데이트 확인에서 메인 프로세스가 GitHub에서 직접 받은 설치 파일 정보 */
@@ -6553,7 +6555,7 @@ async function generateAutonomousTopic(
   const categories = nicheFallbackCategories(nicheClean);
   const allFallbacks = categories.flatMap((key) => FALLBACK_AUTONOMOUS_TOPICS[key] || []);
   if (allFallbacks.length === 0) {
-    throw new Error(`'${nicheClean}' 분야의 주제를 만들려면 Gemini API 키가 필요합니다. AI 설정에서 키를 확인해 주세요.`);
+    throw new Error(`'${nicheClean}' 분야의 주제를 만들려면 Claude 또는 Gemini API 키가 필요합니다. AI 설정에서 키를 확인해 주세요.`);
   }
 
   const unused = allFallbacks.filter((item) => !pastTopics.some((p) => p.includes(item.topic) || item.topic.includes(p)));
