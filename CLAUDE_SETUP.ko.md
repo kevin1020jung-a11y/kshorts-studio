@@ -9,6 +9,8 @@
 | 기본 모델 | Claude Opus 5.5 (설정 화면에서 Sonnet 5.5, Haiku 5.5로 변경 가능) |
 | 이미지 생성 | Claude는 이미지를 만들지 않으므로 기존 엔진(무료 FLUX 등)을 그대로 씁니다. |
 | 필요한 것 | Windows 10/11 64비트, Node.js 20 이상, Claude API 키 |
+| 기준 버전 | 원본 K-Shorts Studio 1.4.16 + Claude 연동 |
+| 자동 업데이트 | 원본 배포판으로 덮어써지지 않도록 기본값을 꺼 두었습니다. 새 버전은 아래 '원본 새 버전 반영' 절차로 받습니다. |
 
 > Claude.ai 구독(Pro/Max)으로는 이 프로그램이 Claude를 호출할 수 없습니다. 아래 1단계에서 **API 키**를 따로 발급해야 하며, 사용한 만큼 Claude Console에서 과금됩니다.
 
@@ -64,6 +66,25 @@ npm start
 4. **연결 테스트**를 눌러 "연결 성공"이 나오는지 확인한 뒤 **저장**합니다.
    - 키는 Windows 보안 저장소(DPAPI)로 암호화되어 저장됩니다.
    - 설정 화면 대신 환경 변수 `ANTHROPIC_API_KEY`를 지정해도 인식합니다.
+
+## 이미 설치한 PC에서 새 버전으로 올리기
+
+기존 설치 폴더의 `admin.local.json`(로그인 코드)과 저장된 설정·API 키는 그대로 유지됩니다.
+
+1. 실행 중인 프로그램을 종료합니다.
+2. 설치 폴더에서 명령 프롬프트를 열고 최신 코드를 받습니다.
+   - Git으로 받은 경우: `git pull`
+   - ZIP으로 받은 경우: 새 ZIP을 풀고, 기존 폴더의 `admin.local.json`과 `node_modules` 폴더를 새 폴더로 복사합니다.
+3. 다음 명령을 실행합니다.
+
+```bat
+npm install
+npm run build
+npm start
+```
+
+- `npm install` 후 Electron 누락 오류가 나면 지난번과 같이 `node_modules\electron\dist` 조치를 다시 적용합니다.
+- 프로그램 안에 원본의 "새 버전 알림"이 뜨더라도 설치하지 마십시오. 원본 설치 파일에는 Claude 연동이 없습니다.
 
 ## 모델 선택 기준
 

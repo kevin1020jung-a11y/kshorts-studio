@@ -6,7 +6,7 @@
 
 Windows 데스크톱 프로그램 · Electron + React + TypeScript · FFmpeg / libass
 
-![version](https://img.shields.io/badge/version-1.4.14-2563eb)
+![version](https://img.shields.io/badge/version-1.4.16-2563eb)
 ![platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0ea5e9)
 ![electron](https://img.shields.io/badge/Electron-React%20%2B%20Vite-8b5cf6)
 ![license](https://img.shields.io/badge/license-MIT-22c55e)
