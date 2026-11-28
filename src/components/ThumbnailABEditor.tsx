@@ -111,9 +111,6 @@ export const ThumbnailABEditor: React.FC<ThumbnailABEditorProps> = ({
           <div>
             <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
               <span>AI 썸네일 & 3초 후킹 A/B 테스트 생성기</span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-50 text-rose-600 font-extrabold border border-rose-200">
-                CTR 2.4배 향상
-              </span>
             </h3>
             <p className="text-xs text-slate-500 font-medium">
               시청자가 스크롤을 멈추게 만드는 첫 3초 인트로와 썸네일(Scene 0) 후킹 카피를 A/B 테스트하여 최적의 선택을 내립니다.
@@ -160,9 +157,6 @@ export const ThumbnailABEditor: React.FC<ThumbnailABEditorProps> = ({
                           {v.badge}
                         </span>
                       </div>
-                      <span className="text-xs font-black text-amber-600">
-                        CTR {v.ctrScore}%
-                      </span>
                     </div>
 
                     <h4 className="text-sm font-black text-slate-900 leading-snug">
@@ -290,9 +284,6 @@ export const ThumbnailABEditor: React.FC<ThumbnailABEditorProps> = ({
               <h5 className="text-xs font-black leading-tight text-white drop-shadow-md line-clamp-3">
                 {activeVariant?.title || topic}
               </h5>
-              <div className="inline-block text-[8px] font-extrabold px-2 py-0.5 rounded-full bg-black/60 text-amber-300 border border-amber-400/40">
-                예상 CTR {activeVariant?.ctrScore || 95}% (최상위 5%)
-              </div>
             </div>
 
             {/* Bottom YouTube Shorts Overlay Info */}

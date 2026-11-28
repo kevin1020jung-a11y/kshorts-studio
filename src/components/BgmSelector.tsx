@@ -87,7 +87,7 @@ export const BgmSelector: React.FC<BgmSelectorProps> = ({
               </span>
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                100% 저작권 안전 (No Content ID)
+                직접 합성한 로열티 프리 음원
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
@@ -121,8 +121,8 @@ export const BgmSelector: React.FC<BgmSelectorProps> = ({
           <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-200/80 flex items-start gap-2.5">
             <ShieldCheck className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
             <div className="text-[11px] text-emerald-950 leading-relaxed">
-              <span className="font-bold text-emerald-800">유튜브/쇼츠/틱톡/릴스 저작권 100% 안전 보증:</span>
-              {' '}제공되는 모든 배경음악은 Content ID 침해나 수익 창출 제한이 없는 순수 로열티 프리 음원입니다.
+              <span className="font-bold text-emerald-800">로열티 프리 배경음악:</span>
+              {' '}제공되는 배경음악은 프로그램이 직접 합성한 로열티 프리 음원입니다. 저작권 판정은 각 플랫폼 기준을 따릅니다.
               스마트폰 모바일 앱에서 직접 최신 트렌드 음악을 삽입하고 싶으신 경우 <b>'배경음악 없음'</b>을 선택하시면 됩니다.
             </div>
           </div>

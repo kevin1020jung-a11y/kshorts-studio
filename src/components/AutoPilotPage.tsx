@@ -541,9 +541,9 @@ export const AutoPilotPage: React.FC<AutoPilotPageProps> = ({ settings, onNaviga
           <span>유튜브 채널 안전 업로드 한도 & 알고리즘 가이드</span>
         </div>
         <p className="text-[11px] text-slate-600 leading-relaxed font-medium">
-          • <b>유튜브 무료 API 기본 쿼터(10,000pt) 기준</b>: 하루 <b>최대 6편(4시간 간격)</b>이 쿼터 소진 없이 365일 100% 안전하게 동작하는 최적선입니다.<br />
-          • <b>계정 성장기 권장</b>: 하루 <b>1~3편</b>이 구독자 피로도 없이 알고리즘 점수를 가장 높게 받습니다.<br />
-          • <b>공격적 성장 채널</b>: 전화번호 인증 채널 기준 하루 <b>최대 12편(2시간 간격)</b>까지 안전하게 연속 자동 발행이 가능합니다.
+          • <b>유튜브 무료 API 기본 쿼터(10,000pt) 기준</b>: 하루 <b>최대 6편(4시간 간격)</b>이 기본 쿼터 안에서 업로드할 수 있는 대략적인 한도입니다.<br />
+          • <b>계정 성장기 권장</b>: 하루 <b>1~3편</b>부터 시작해 반응을 보며 늘리는 것을 권장합니다.<br />
+          • 업로드 한도와 정책은 YouTube 사정에 따라 바뀔 수 있습니다.
         </p>
       </div>
 
@@ -967,7 +967,7 @@ export const AutoPilotPage: React.FC<AutoPilotPageProps> = ({ settings, onNaviga
                     <span>초반 이탈 방지! 첫 3초 상단 후킹 타이틀 배너</span>
                   </div>
                   <p className="text-[11px] text-slate-600">
-                    영상 시작 0~2.3초간 강력한 팝업 모션으로 시청자의 시선을 100% 사로잡습니다.
+                    영상 시작 0~2.3초간 강력한 팝업 모션으로 시청자의 시선을 끕니다.
                   </p>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">

@@ -608,7 +608,7 @@ export const HelpGuidePage: React.FC<HelpGuidePageProps> = ({ onNavigate }) => {
                 <span>원클릭 쇼츠 렌더링 & 유튜브 자동 발행</span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed pl-9 font-medium">
-                [원클릭 쇼츠 비디오 렌더링 시작] 버튼을 누르면 약 15~30초 내에 1080x1920 세로 FHD 쇼츠가 자동 생성되며,
+                [원클릭 쇼츠 비디오 렌더링 시작] 버튼을 누르면 1080x1920 세로 FHD 쇼츠가 자동 생성되며(장면 수와 이미지 엔진에 따라 수 분 소요),
                 유튜브 연동이 켜져 있는 경우 바로 내 채널로 즉시 업로드 및 첫 댓글이 자동 고정됩니다.
               </p>
             </div>

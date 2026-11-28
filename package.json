@@ -1,6 +1,6 @@
 {
   "name": "kshorts-desktop",
-  "version": "1.4.14",
+  "version": "1.4.16",
   "description": "K-Shorts Studio - 한국어 AI 쇼츠 자동화 제작 데스크톱 프로그램",
   "author": "K-Shorts Studio Team",
   "main": "dist-electron/main.cjs",

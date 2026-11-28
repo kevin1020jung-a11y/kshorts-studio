@@ -453,6 +453,28 @@ export default function App() {
     };
 
     try {
+      // 대본을 직접 고친 뒤라면 장면 타임라인(장면별 이미지 묘사)이 예전 대본 그대로일 수 있다.
+      // 장면 글을 합친 것이 지금 대본과 다르면 지금 대본으로 장면을 다시 나눈다 (예전 묘사로 엉뚱한 이미지가 나오지 않도록).
+      let scenesForRender: ScriptScene[] | undefined = scenes.length > 0 ? scenes : undefined;
+      const looseText = (t: string) => (t || '').replace(/[^0-9A-Za-z\uAC00-\uD7A3]/g, '');
+      const scenesMatchScript = (list: ScriptScene[]) => {
+        const body = looseText(script);
+        const [first, ...rest] = list;
+        // 첫 장면은 썸네일 후킹 문구(제목)로 바뀌어 있을 수 있다
+        const firstOk = !first || body.includes(looseText(first.text)) || looseText(first.text) === looseText(prompt);
+        const restText = looseText(rest.map((sc) => sc.text).join(''));
+        return firstOk && (restText === '' || body.includes(restText));
+      };
+      if (scenesForRender && script.trim() && !scenesMatchScript(scenesForRender)) {
+        scenesForRender = undefined;
+        try {
+          const resplit = await window.electronAPI?.splitScriptScenes?.({ script: script.trim(), title: prompt.trim() });
+          if (resplit && resplit.length > 0) {
+            scenesForRender = resplit;
+            setScenes(resplit);
+          }
+        } catch {}
+      }
       if (window.electronAPI) {
         const result = await window.electronAPI.renderShorts({
           id: projectId,
@@ -482,7 +504,7 @@ export default function App() {
           highlightKeywords,
           syncHighlightSfx,
           transitionType,
-          customScenes: scenes.length > 0 ? scenes : undefined,
+          customScenes: scenesForRender,
         });
 
         newProject.status = 'done';
@@ -897,7 +919,7 @@ export default function App() {
                         )}
                       </div>
                       <p className="text-[11px] text-slate-400 font-medium">
-                        버튼을 누르면 음성 합성 및 자막 합성이 즉시 시작됩니다. (약 15~30초 소요)
+                        버튼을 누르면 음성·이미지·자막 합성이 시작됩니다. (장면 수와 이미지 엔진에 따라 수 분 소요)
                       </p>
                     </div>
 

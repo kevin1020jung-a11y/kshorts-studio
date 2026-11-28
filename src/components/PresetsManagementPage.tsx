@@ -313,7 +313,7 @@ export const PresetsManagementPage: React.FC<PresetsManagementPageProps> = ({
       {activeTab === 'fonts' && (
         <div className="space-y-4">
           <h2 className="text-sm font-black text-slate-900">
-            유튜브 수익 창출 100% 안심 무료 상업용 폰트
+            상업적 이용이 가능한 무료 폰트 (OFL 등)
           </h2>
           <FontSelector
             selectedFontId="Pretendard"
